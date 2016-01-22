@@ -1,0 +1,338 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Centos7 Dev Stack",
+  "Parameters": {
+    "12KeyName": {
+      "Description": "Name of an existing SSH EC2 KeyPair",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Default": "HS_Team"
+    },
+    "01Webserver1": {
+      "Description": "Name of 1st Web EC2 instance",
+      "Type": "String",
+      "Default": "codestar-bootcamp-Jenkins"
+    },
+    "03WebServer2": {
+      "Description": "Name of 2nd Web EC2 instance",
+      "Type": "String",
+      "Default": "codestar-bootcamp-TARGET"
+    },
+    "11ProjectName": {
+      "Description": "The Project that this instance belongs to.",
+      "Type": "String",
+      "AllowedValues": [ "10225", "appia", "bidexpress", "bidx", "docexpress", "infotechexpress" ],
+      "Default": "10225"
+    },
+    "10InstanceType": {
+      "Description": "Instance type",
+      "Type": "String",
+      "Default": "m3.medium",
+      "AllowedValues": [ "t2.micro", "t2.small", "t2.medium", "t2.large", "m3.medium", "m4.large", "m4.xlarge", "m4.2xlarge" ],
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "05WebSecurityGroupIds": {
+      "Type": "List<AWS::EC2::SecurityGroup::Id>",
+      "Default": "sg-cc8621ab,sg-ee832489,sg-bc8d7bc5",
+      "Description": "Security groups to assign to your instances, be sure to include base"
+    },
+    "09VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Default": "vpc-9f63bef7",
+      "Description": "VpcId of your existing Virtual Private Cloud (VPC)"
+    },
+    "02WebServer1Subnet": {
+      "Type": "AWS::EC2::Subnet::Id",
+      "Default" : "subnet-209ffb4b",
+      "Description": "SubnetId for Web Server 1"
+    },
+    "04WebServer2Subnet": {
+      "Type": "AWS::EC2::Subnet::Id",
+      "Default" : "subnet-209ffb4b",
+      "Description": "SubnetId for Web Server 2"
+    },
+    "JenkinsPassword": {
+        "Type": "String",
+        "NoEcho": "TRUE",
+        "Default": "alm-bootcamp"
+    }
+  },
+  "Mappings": {
+    "AWSInstanceType2Arch": {
+      "t2.micro": { "Arch": "HVM64" },
+      "t2.small": { "Arch": "HVM64" },
+      "t2.medium": { "Arch": "HVM64" },
+      "t2.large": { "Arch": "HVM64" },
+      "m3.medium": { "Arch": "HVM64" },
+      "m4.large": { "Arch": "HVM64" },
+      "m4.xlarge": { "Arch": "HVM64" },
+      "m4.2xlarge": { "Arch": "HVM64" }
+    },
+    "WebAMI": {
+      "us-east-1": { "HVM64": "ami-1ecae776" }
+    }
+  },
+  "Resources": {
+    "Bucket": {
+        "Type": "AWS::S3::Bucket",
+        "Properties": {
+          "BucketName" : "iti-bootcamp-lab"
+        }
+    },
+    "JenkinsRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+            "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": ["ec2.amazonaws.com"]
+                    },
+                    "Action": ["sts:AssumeRole"]
+                }]
+            },
+            "Path": "/",
+            "ManagedPolicyArns": [
+                "arn:aws:iam::aws:policy/AWSCodePipelineCustomActionAccess"
+            ],
+            "Policies": [{
+                "PolicyName": "codestar-bootcamp-RWPolicy",
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:List*",
+                            "s3:Get*"
+                        ],
+                        "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", {"Ref":"Bucket"}]]}
+                    },{
+                        "Effect": "Allow",
+                        "Action": [ "s3:List*", "s3:Get*", "s3:PutObject", "s3:DeleteObject" ],
+                        "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", {"Ref":"Bucket"}, "/*"]]}
+                    },{
+                        "Effect": "Allow",
+                        "Action": "cloudformation:*",
+                        "Resource": "*"
+                    },{
+                        "Effect": "Allow",
+                        "Action": "codedeploy:*",
+                        "Resource": "*"
+                    },{
+                        "Effect": "Allow",
+                        "Action": "codecommit:*",
+                        "Resource": "*"
+                    },{
+                        "Effect": "Allow",
+                        "Action": "ec2:*",
+                        "Resource": "*"
+                    },{
+                       "Effect": "Allow",
+                       "Action": [ "s3:List*", "s3:Get*" ],
+                       "Resource": "*"
+                    },{
+                        "Effect": "Allow",
+                        "Action": "iam:*",
+                        "Resource": "*"
+                    }]
+                }
+            }]
+        }
+    },
+    "JenkinsIstPfl": {
+        "Type": "AWS::IAM::InstanceProfile",
+        "Properties": {
+            "Path": "/",
+            "Roles": [{"Ref":"JenkinsRole"}]
+        }
+    },
+    "CodeDeployRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+            "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": ["codedeploy.amazonaws.com"]
+                    },
+                    "Action": ["sts:AssumeRole"]
+                }]
+            },
+            "Path": "/",
+            "ManagedPolicyArns": [
+                "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+            ]
+        }
+    },
+    "Jenkins": {
+      "Type": "AWS::EC2::Instance",
+      "CreationPolicy": {
+          "ResourceSignal": {
+              "Timeout": "PT5M"
+          }
+      },
+      "Properties": {
+        "IamInstanceProfile": {"Ref":"JenkinsIstPfl"},
+        "InstanceType": { "Ref": "10InstanceType" },
+        "ImageId": { "Fn::FindInMap": [ "WebAMI", { "Ref": "AWS::Region" }, { "Fn::FindInMap": [ "AWSInstanceType2Arch", { "Ref": "10InstanceType" }, "Arch" ] } ] },
+        "BlockDeviceMappings": [ { "DeviceName": "/dev/xvda", "Ebs": { "VolumeType": "gp2", "DeleteOnTermination": "true", "VolumeSize": "8" } } ],
+        "KeyName": { "Ref": "12KeyName" },
+        "Monitoring": true,
+        "NetworkInterfaces": [ { "NetworkInterfaceId": { "Ref": "WebServer1ENI" }, "DeviceIndex": "0" } ],
+        "Tags": [ 
+          { "Key": "Name", "Value": { "Ref": "01Webserver1" } },
+          { "Key": "Project", "Value": { "Ref": "11ProjectName" } },
+          { "Key": "Purpose", "Value": "CodeDeploy Jenkins CI instance" },
+          { "Key": "Startup", "Value": "true" },
+          { "Key": "Shutdown", "Value": "true" }
+        ],
+        "UserData": {"Fn::Base64":{"Fn::Join": ["",[
+            "#!/bin/bash -xe\n\n",
+            "yum -y update\n",
+            "yum -y install tomcat8 nginx git php php-xml httpd-tools\n",
+
+            "curl -Os https://phar.phpunit.de/phpunit.phar\n",
+            "chmod +x phpunit.phar\n",
+            "mv phpunit.phar /usr/local/bin/phpunit\n",
+
+            "chkconfig tomcat8 on\n",
+            "cd /usr/share/tomcat8/webapps/\n",
+            "wget -O ROOT.war http://mirrors.jenkins-ci.org/war/latest/jenkins.war\n",
+            "/etc/init.d/tomcat8 start\n",
+
+            {"Fn::Join": ["", [
+                "htpasswd -b -c /etc/nginx/.htpasswd awsstudent ",
+                {"Ref": "JenkinsPassword"},
+                "\n"]]},
+
+            "cat >/etc/nginx/conf.d/jenkins.conf <<EOF\n",
+            "server {\n",
+            "    listen 80;\n",
+            "    location / {\n",
+            "       auth_basic \"Restricted\";                  #For Basic Auth\n",
+            "       auth_basic_user_file /etc/nginx/.htpasswd;  #For Basic Auth\n",
+            "       proxy_set_header   Host \\$host;\n",
+            "       proxy_set_header   X-Real-IP \\$remote_addr;\n",
+            "       proxy_set_header   X-Forwarded-For \\$proxy_add_x_forwarded_for;\n",
+            "       proxy_set_header   X-Forwarded-Host \\$server_name;\n",
+            "       client_max_body_size 50M;\n",
+            "       proxy_pass http://localhost:8080;\n",
+            "       proxy_redirect     off;\n",
+            "    }\n",
+            "}\n",
+            "EOF\n\n",
+
+            "chkconfig nginx on\n",
+            "service nginx start\n",
+
+            "/opt/aws/bin/cfn-signal -e $? ",
+            "         --stack ", {"Ref": "AWS::StackName"},
+            "         --resource Jenkins ",
+            "         --region ", {"Ref": "AWS::Region"}, "\n"
+        ]]}}
+      }
+    },
+    "TARGET": {
+      "Type": "AWS::EC2::Instance",
+      "CreationPolicy": { "ResourceSignal": { "Timeout": "PT5M" } },
+      "Properties": {
+        "IamInstanceProfile": {"Ref":"JenkinsIstPfl"},
+        "InstanceType": { "Ref": "10InstanceType" },
+        "ImageId": { "Fn::FindInMap": [ "WebAMI", { "Ref": "AWS::Region" }, { "Fn::FindInMap": [ "AWSInstanceType2Arch", { "Ref": "10InstanceType" }, "Arch" ] } ] },
+        "BlockDeviceMappings": [ { "DeviceName": "/dev/xvda", "Ebs": { "VolumeType": "gp2", "DeleteOnTermination": "true", "VolumeSize": "8" } } ],
+        "KeyName": { "Ref": "12KeyName" },
+        "Monitoring": true,
+        "NetworkInterfaces": [ {
+            "NetworkInterfaceId": { "Ref": "WebServer2ENI" },
+            "DeviceIndex": "0"
+        }],
+        "Tags": [
+          { "Key": "Name", "Value": { "Ref": "03WebServer2" } },
+          { "Key": "Project", "Value": { "Ref": "11ProjectName" } },
+          { "Key": "Purpose", "Value": "web" },
+          { "Key": "Startup", "Value": "true" },
+          { "Key": "Shutdown", "Value": "true" }
+        ],
+        "UserData": {"Fn::Base64":{"Fn::Join": ["",[
+            "#!/bin/bash -xe\n\n",
+            "yum -y update\n",
+            "yum -y install httpd php php-xml\n",
+
+            "cat >>/etc/httpd/conf/httpd.conf <<EOF\n\n",
+            "<Directory \"/var/www/html/src\">\n",
+            "    Order allow,deny\n",
+            "    Deny from all\n",
+            "</Directory>\n",
+            "EOF\n\n",
+
+            "chkconfig httpd on\n",
+            "service httpd start\n",
+
+            "/opt/aws/bin/cfn-signal -e $? ",
+            "         --stack ", {"Ref": "AWS::StackName"},
+            "         --resource TARGET ",
+            "         --region ", {"Ref": "AWS::Region"}, "\n"
+        ]]}}
+      }
+    },
+    "WebServer1ENI": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "eth0",
+        "GroupSet": { "Ref": "05WebSecurityGroupIds" },
+        "SourceDestCheck": "true",
+        "SubnetId": { "Ref": "02WebServer1Subnet" },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Interface 0"
+          },
+          {
+            "Key": "Interface",
+            "Value": "eth0"
+          }
+        ]
+      }
+    },
+    "WebServer2ENI": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "eth0",
+        "GroupSet": { "Ref": "05WebSecurityGroupIds" },
+        "SourceDestCheck": "true",
+        "SubnetId": { "Ref": "04WebServer2Subnet" },
+        "Tags": [
+          { "Key": "Name", "Value": "Interface 0" },
+          { "Key": "Interface", "Value": "eth0" }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "WebServer1ID": {
+      "Value": { "Ref": "Jenkins" },
+      "Description": "Instance ID of Web Server"
+    },
+    "WebServer1HostName": {
+      "Value": { "Ref": "01Webserver1" },
+      "Description": "Web Server Instance Name"
+    },
+    "WebServer1IP": {
+      "Value": { "Fn::Join": [ " ", [ "IP address", { "Fn::GetAtt": [ "WebServer1ENI", "PrimaryPrivateIpAddress" ] }, "on subnet", { "Ref": "02WebServer1Subnet" } ] ] },
+      "Description": "Private IP address of Eth0 on WebServer1"
+    },
+    "WebServer2ID": {
+      "Value": { "Ref": "TARGET" },
+      "Description": "Instance ID of Web Server"
+    },
+    "WebServer2HostName": {
+      "Value": { "Ref": "03WebServer2" },
+      "Description": "Web Server Instance Name"
+    },
+    "WebServer2IP": {
+      "Value": { "Fn::Join": [ " ", [ "IP address", { "Fn::GetAtt": [ "WebServer2ENI", "PrimaryPrivateIpAddress" ] }, "on subnet", { "Ref": "04WebServer2Subnet" } ] ] },
+      "Description": "Private IP address of Eth0 on WebServer2"
+    }
+  }
+}

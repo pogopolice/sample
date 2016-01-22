@@ -1,0 +1,336 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "CodeStar-Bootcamp",
+    "Parameters": {
+      "KeyName": {
+        "Description" : "Name of an existing SSH EC2 KeyPair",
+        "Type": "AWS::EC2::KeyPair::KeyName",
+        "Default" : "HS_Team"
+      },
+      "JenkinsPassword": {
+          "Type": "String",
+          "NoEcho": "TRUE",
+          "Default": "alm-bootcamp"
+      },
+      "VpcId" : {
+        "Type" : "AWS::EC2::VPC::Id",
+        "Default" : "vpc-9f63bef7",
+        "Description" : "VpcId of your existing Virtual Private Cloud (VPC)"
+      },
+
+      "SubnetId" : {
+        "Type" : "AWS::EC2::Subnet::Id",
+        "Default" : "subnet-aae17381",
+        "Description" : "SubnetId of a range that is reserved for this stage and product"
+      }
+    },
+    "Mappings": {
+        "AmiMap": {
+            "ap-northeast-1": {
+                "ebs": "ami-c7f90ec7",
+                "gp2": "ami-cbf90ecb",
+                "s3": "ami-ddfa0ddd"
+            },
+            "ap-southeast-1": {
+                "ebs": "ami-64d8e936",
+                "gp2": "ami-68d8e93a",
+                "s3": "ami-32d8e960"
+            },
+            "ap-southeast-2": {
+                "ebs": "ami-f39cecc9",
+                "gp2": "ami-fd9cecc7",
+                "s3": "ami-fb9cecc1"
+            },
+            "eu-central-1": {
+                "ebs": "ami-ae221fb3",
+                "gp2": "ami-a8221fb5",
+                "s3": "ami-b0221fad"
+            },
+            "eu-west-1": {
+                "ebs": "ami-a30897d4",
+                "gp2": "ami-a10897d6",
+                "s3": "ami-c90897be"
+            },
+            "sa-east-1": {
+                "ebs": "ami-b72890aa",
+                "gp2": "ami-b52890a8",
+                "s3": "ami-bd2890a0"
+            },
+            "us-east-1": {
+                "ebs": "ami-10cae778",
+                "gp2": "ami-1ecae776",
+                "s3": "ami-28cae740"
+            },
+            "us-west-1": {
+                "ebs": "ami-cb14f28f",
+                "gp2": "ami-d114f295",
+                "s3": "ami-3b14f27f"
+            },
+            "us-west-2": {
+                "ebs": "ami-e9527ed9",
+                "gp2": "ami-e7527ed7",
+                "s3": "ami-9f527eaf"
+            }
+        }
+    },
+    "Resources": {
+        "Bucket": {
+            "Type": "AWS::S3::Bucket",
+              "Properties": {
+                "BucketName" : "qlstack2-labinstance"
+            }
+        },
+        "JenkinsRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["ec2.amazonaws.com"]
+                        },
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "Path": "/",
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/AWSCodePipelineCustomActionAccess"
+                ],
+                "Policies": [{
+                    "PolicyName": "codestar-bootcamp-RWPolicy",
+                    "PolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": [
+                                "s3:List*",
+                                "s3:Get*"
+                            ],
+                            "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", {"Ref":"Bucket"}]]}
+                        },{
+                            "Effect": "Allow",
+                            "Action": [
+                              "s3:List*",
+                                "s3:Get*",
+                                "s3:PutObject",
+                                "s3:DeleteObject"
+                            ],
+                            "Resource": {"Fn::Join": ["", ["arn:aws:s3:::", {"Ref":"Bucket"}, "/*"]]}
+                        },{
+                            "Effect": "Allow",
+                            "Action": "cloudformation:*",
+                            "Resource": "*"
+                        },{
+                            "Effect": "Allow",
+                            "Action": "codedeploy:*",
+                            "Resource": "*"
+                        },{
+                            "Effect": "Allow",
+                            "Action": "codecommit:*",
+                            "Resource": "*"
+                        },{
+                            "Effect": "Allow",
+                            "Action": "ec2:*",
+                            "Resource": "*"
+                        },
+                        {
+                           "Effect": "Allow",
+                           "Action": [
+                                "s3:List*",
+                                "s3:Get*"
+                            ],
+                           "Resource": "*"
+                        }
+                        ,{
+                            "Effect": "Allow",
+                            "Action": "iam:*",
+                            "Resource": "*"
+                        }]
+                    }
+                }]
+            }
+        },
+        "JenkinsIstPfl": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{"Ref":"JenkinsRole"}]
+            }
+        },
+        "CodeDeployRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["codedeploy.amazonaws.com"]
+                        },
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                },
+                "Path": "/",
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+                ]
+            }
+        },
+        "JenkinsSg": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "CodeStar Bootcamp Jenkins",
+                "VpcId": {"Ref":"VpcId"},
+                "SecurityGroupIngress": [
+                    {"IpProtocol": "6", "FromPort": 80, "ToPort": 80, "CidrIp": "0.0.0.0/0"},
+                    {"IpProtocol": "6", "FromPort": 22, "ToPort": 22, "CidrIp": "0.0.0.0/0"}
+                ],
+                "SecurityGroupEgress": [
+                    {"IpProtocol": "6", "FromPort": 80,  "ToPort": 80,  "CidrIp": "0.0.0.0/0"},
+                    {"IpProtocol": "6", "FromPort": 443, "ToPort": 443, "CidrIp": "0.0.0.0/0"},
+                    {"IpProtocol": "6", "FromPort": 8080, "ToPort": 8080, "CidrIp": "0.0.0.0/0"},
+                    {"IpProtocol": "6", "FromPort": 22,  "ToPort": 22,  "CidrIp": "0.0.0.0/0"}
+                ],
+                "Tags": [{"Key":"Name","Value":"codestar-bootcamp-Jenkins"}]
+            }
+        },
+        "Jenkins": {
+            "Type": "AWS::EC2::Instance",
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT5M"
+                }
+            },
+            "Properties": {
+                "IamInstanceProfile": {"Ref":"JenkinsIstPfl"},
+                "ImageId": {"Fn::FindInMap": ["AmiMap", {"Ref":"AWS::Region"}, "gp2"]},
+                "InstanceType": "t2.medium",
+                "KeyName": {"Ref": "KeyName"},
+                "Monitoring": true,
+                "NetworkInterfaces": [{
+                    "NetworkInterfaceId" : {"Ref" : "Eth0Jenkins" },
+                    "DeviceIndex": "0"
+                }],
+                "Tags": [{
+                    "Key": "Name",
+                    "Value": "codestar-bootcamp-Jenkins"
+                }],
+                "UserData": {"Fn::Base64":{"Fn::Join": ["",[
+                    "#!/bin/bash -xe\n\n",
+                    "yum -y update\n",
+                    "yum -y install tomcat8 nginx git php php-xml httpd-tools\n",
+
+                    "curl -Os https://phar.phpunit.de/phpunit.phar\n",
+                    "chmod +x phpunit.phar\n",
+                    "mv phpunit.phar /usr/local/bin/phpunit\n",
+
+                    "chkconfig tomcat8 on\n",
+                    "cd /usr/share/tomcat8/webapps/\n",
+                    "wget -O ROOT.war http://mirrors.jenkins-ci.org/war/latest/jenkins.war\n",
+                    "/etc/init.d/tomcat8 start\n",
+
+                    {"Fn::Join": ["", [
+                        "htpasswd -b -c /etc/nginx/.htpasswd awsstudent ",
+                        {"Ref": "JenkinsPassword"},
+                        "\n"]]},
+
+                    "cat >/etc/nginx/conf.d/jenkins.conf <<EOF\n",
+                    "server {\n",
+                    "    listen 80;\n",
+                    "    location / {\n",
+                    "       auth_basic \"Restricted\";                  #For Basic Auth\n",
+                    "       auth_basic_user_file /etc/nginx/.htpasswd;  #For Basic Auth\n",
+                    "       proxy_set_header   Host \\$host;\n",
+                    "       proxy_set_header   X-Real-IP \\$remote_addr;\n",
+                    "       proxy_set_header   X-Forwarded-For \\$proxy_add_x_forwarded_for;\n",
+                    "       proxy_set_header   X-Forwarded-Host \\$server_name;\n",
+                    "       client_max_body_size 50M;\n",
+                    "       proxy_pass http://localhost:8080;\n",
+                    "       proxy_redirect     off;\n",
+                    "    }\n",
+                    "}\n",
+                    "EOF\n\n",
+
+                    "chkconfig nginx on\n",
+                    "service nginx start\n",
+
+                    "/opt/aws/bin/cfn-signal -e $? ",
+                    "         --stack ", {"Ref": "AWS::StackName"},
+                    "         --resource Jenkins ",
+                    "         --region ", {"Ref": "AWS::Region"}, "\n"
+                ]]}}
+            }
+        },
+        "TARGET": {
+            "Type": "AWS::EC2::Instance",
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT5M"
+                }
+            },
+            "Properties": {
+                "IamInstanceProfile": {"Ref":"JenkinsIstPfl"},
+                "ImageId": {"Fn::FindInMap": ["AmiMap", {"Ref":"AWS::Region"}, "gp2"]},
+                "InstanceType": "t2.medium",
+                "KeyName": {"Ref": "KeyName"},
+                "Monitoring": true,
+                "NetworkInterfaces": [{
+                    "NetworkInterfaceId" : {"Ref" : "Eth0Target" },
+                    "DeviceIndex": "0"
+                }],
+                "Tags": [{
+                    "Key": "Name",
+                    "Value": "codestar-bootcamp-TARGET"
+                }],
+                "UserData": {"Fn::Base64":{"Fn::Join": ["",[
+                    "#!/bin/bash -xe\n\n",
+                    "yum -y update\n",
+                    "yum -y install httpd php php-xml\n",
+
+                    "cat >>/etc/httpd/conf/httpd.conf <<EOF\n\n",
+                    "<Directory \"/var/www/html/src\">\n",
+                    "    Order allow,deny\n",
+                    "    Deny from all\n",
+                    "</Directory>\n",
+                    "EOF\n\n",
+
+                    "chkconfig httpd on\n",
+                    "service httpd start\n",
+
+                    "/opt/aws/bin/cfn-signal -e $? ",
+                    "         --stack ", {"Ref": "AWS::StackName"},
+                    "         --resource TARGET ",
+                    "         --region ", {"Ref": "AWS::Region"}, "\n"
+                ]]}}
+            }
+        },
+    	"Eth0Jenkins" : {
+    	  "Type" : "AWS::EC2::NetworkInterface",
+    	  "Properties" : {
+    	    "Description"     : "eth0",
+    	    "GroupSet"        : { "Ref" : "JenkinsSg" },
+    	    "SourceDestCheck" : "true",
+    	    "SubnetId"        : { "Ref" : "SubnetId" },
+    	    "Tags"            : [ {"Key" : "Name", "Value" : "Interface 0"}, {"Key" : "Interface", "Value" : "eth0"} ]
+    	  }
+    	},
+    	"Eth0Target" : {
+    	  "Type" : "AWS::EC2::NetworkInterface",
+    	  "Properties" : {
+    	    "Description"     : "eth0",
+    	    "GroupSet"        : { "Ref" : "JenkinsSg" },
+    	    "SourceDestCheck" : "true",
+    	    "SubnetId"        : { "Ref" : "SubnetId" },
+    	    "Tags"            : [ {"Key" : "Name", "Value" : "Interface 0"}, {"Key" : "Interface", "Value" : "eth0"} ]
+    	  }
+    	}
+    },
+
+    "Outputs": {
+        "Bucket": {
+            "Description": "Name of your environment's S3 bucket",
+            "Value": {"Ref":"Bucket"}
+        }
+     }
+}
