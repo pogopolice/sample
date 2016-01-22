@@ -1,7 +1,7 @@
 <?php
 class Sample {
   public function helloWorld() {
-    return "Welcome";
+    return "Hello!";
   }
 }
 
